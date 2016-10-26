@@ -3,6 +3,8 @@
 Created on Fri Oct 14 14:32:55 2016
 
 @author: Sarick
+Code modified from 
+http://www.paulvangent.com/2016/04/01/emotion-recognition-with-python-opencv-and-a-face-dataset/
 """
 import glob
 import random
@@ -11,6 +13,28 @@ import numpy as np
 import cv2
 import cv
 import tweepy
+import pandas as pd
+from sklearn.cross_validation import train_test_split
+import pickle
+import matplotlib.pyplot as plt
+import seaborn as sns
+
+'''
+https://github.com/chachi/MirrorMirror/blob/master/compu.py
+to get help on cleaning up info
+'''
+#%%
+def second_largest(numbers):
+    count = 0
+    m1 = m2 = float('-inf')
+    for x in numbers:
+        count += 1
+        if x > m2:
+            if x >= m1:
+                m1, m2 = x, m1            
+            else:
+                m2 = x
+    return m2 if count >= 2 else None
 #%%
 emotions = ["neutral", "anger", "contempt", "disgust", "fear", "happy", "sadness", "surprise"] #Define emotion order
 participants = glob.glob("C:\\Users\\Sarick\\Desktop\\Metis\\McNulty Data\\Emotion\\*") #Returns a list of all folders with participant numbers
@@ -88,8 +112,8 @@ data = {}
 def get_files(emotion): #Define function to get file list, randomly shuffle it and split 80/20
     files = glob.glob("C:\\Users\\Sarick\\Desktop\\Metis\\McNulty Data\\sorted_set\\dataset\\%s\\*" %emotion)
     random.shuffle(files)
-    training = files[:int(len(files)*0.8)] #get first 80% of file list
-    prediction = files[-int(len(files)*0.2):] #get last 20% of file list
+    training = files[:int(len(files)*0.65)] #get first 80% of file list
+    prediction = files[-int(len(files)*0.35):] #get last 20% of file list
     return training, prediction
 
 def make_sets():
@@ -103,24 +127,25 @@ def make_sets():
         for item in training:
             image = cv2.imread(item) #open image
             gray = cv2.cvtColor(image, cv2.COLOR_BGR2GRAY) #convert to grayscale
+            gray = cv2.resize(gray, (350, 350))
             training_data.append(gray) #append image array to training data list
             training_labels.append(emotions.index(emotion))
     
         for item in prediction: #repeat above process for prediction set
             image = cv2.imread(item)
             gray = cv2.cvtColor(image, cv2.COLOR_BGR2GRAY)
+            gray = cv2.resize(gray, (350, 350))
             prediction_data.append(gray)
             prediction_labels.append(emotions.index(emotion))
     return training_data, training_labels, prediction_data, prediction_labels
-
-
-
 training_data, training_labels, prediction_data, prediction_labels = make_sets()
 
 print "training fisher face classifier"
 print "size of training set is:", len(training_labels), "images"
-ffr.train(training_data, np.asarray(training_labels))
+model = ffr.train(training_data, np.asarray(training_labels))
 
+pickle.dump(model, open( "save.p", "wb" ))
+model = pickle.load(open("save.p", "rb"))
 print "predicting classification set"
 cnt = 0
 correct = 0
@@ -140,11 +165,115 @@ print predlist
 print prediction_labels
 
 
+
+ #%%
+prediction_data2 = np.array(prediction_data)
+training_data2 = np.array(training_data)
+training_data2 = training_data2.reshape((426, 122500))
 #%%
-training_data, training_labels, prediction_data, prediction_labels = make_sets()    
-print "training fisher face classifier"
-print "size of training set is:", len(training_labels), "images"
-ffr.train(training_data, np.asarray(training_labels))
+import matplotlib.pyplot as plt
+from sklearn.datasets import fetch_mldata
+from sklearn.neural_network import MLPClassifier
+mnist = fetch_mldata("MNIST original")
+# rescale the data, use the traditional train/test split
+X, y = mnist.data / 255., mnist.target
+X_train, X_test = X[:60000], X[60000:]
+y_train, y_test = y[:60000], y[60000:]
+
+
+mlp = MLPClassifier(hidden_layer_sizes=(20,), max_iter=10, alpha=1e-4,
+                    solver='lbfgs', verbose=10, tol=1e-4, random_state=1,
+                    learning_rate_init=.1)
+mlp.fit(training_data2, training_labels)
+print("Training set score: %f" % mlp.score(training_data2, training_labels))
+print("Test set score: %f" % mlp.score(X_test, y_test))
+
+fig, axes = plt.subplots(1, 2)
+# use global min / max to ensure all weights are shown on the same scale
+vmin, vmax = mlp.coefs_[0].min(), mlp.coefs_[0].max()
+for coef, ax in zip(mlp.coefs_[0].T, axes.ravel()):
+    ax.matshow(coef.reshape(350, 350), cmap=plt.cm.gray, vmin=.5 * vmin,
+               vmax=.5 * vmax)
+    ax.set_xticks(())
+    ax.set_yticks(())
+
+test_data_blah = np.array(prediction_data).reshape(127, 122500)
+probability = mlp.predict(test_data_blah)
+plt.show()
+
+#%%
+from sklearn.model_selection import GridSearchCV
+from sklearn.metrics import classification_report
+from sklearn.metrics import confusion_matrix
+from sklearn.decomposition import PCA
+from sklearn.svm import SVC
+
+
+# introspect the images arrays to find the shapes (for plotting)
+n_components = 150
+
+pca = PCA(n_components=n_components, svd_solver='randomized',
+          whiten=True).fit(training_data2)
+pickle.dump(prediction_labels, open( "PCA.pkl", "wb" ))
+
+
+eigenfaces = pca.components_.reshape((n_components, 350, 350))
+
+X_train_pca = pca.transform(training_data2)
+pickle.dump(X_train_pca, open( "X_train_pca.pkl", "wb" ))
+
+prediction_data2 = prediction_data2.reshape((229, 122500))
+pickle.dump(prediction_data2, open( "prediction_data2.pkl", "wb" ))
+
+
+X_test_pca = pca.transform(prediction_data2)
+pickle.dump(X_test_pca, open( "X_test_pca.pkl", "wb" ))
+#%%
+param_grid = {
+            'C': [1e3, 5e3, 1e4, 5e4, 1e5],
+            'gamma': [0.0001, 0.0005, 0.001, 0.005, 0.01, 0.1],
+        }
+        
+model4 = SVC(C=1000.0, cache_size=200, class_weight='auto', coef0=0.0,
+  decision_function_shape=None, degree=3, gamma=0.001, kernel='rbf',
+  max_iter=-1, probability=True, random_state=None, shrinking=True,
+  tol=0.001, verbose=False)
+  
+
+  
+  
+clf = GridSearchCV(SVC(kernel='rbf', class_weight='auto'), param_grid)
+clf = model4.fit(X_train_pca, training_labels)
+y_test_pca = clf.predict(X_test_pca)
+print classification_report(prediction_labels, y_test_pca)
+#%%
+from sklearn.ensemble import RandomForestClassifier
+rfc = RandomForestClassifier(n_jobs=-1, max_features= 'sqrt' , n_estimators = 200, oob_score = True) 
+rfc.fit(X_train_pca, training_labels)
+y_test_pca = rfc.predict(X_test_pca)
+print classification_report(prediction_labels, y_test_pca)
+#%%
+import matplotlib.pyplot as plt
+from sklearn.datasets import fetch_mldata
+from sklearn.neural_network import MLPClassifier
+
+mlp = MLPClassifier(hidden_layer_sizes=(20,), max_iter=20, alpha=1e-4,
+                    solver='lbfgs', verbose=10, tol=1e-4, random_state=1,
+                    learning_rate_init=.1)
+                    
+mlp.fit(X_train_pca, training_labels)
+y_test_pca = mlp.predict(X_test_pca)
+print classification_report(prediction_labels, y_test_pca)
+
+#%%
+pickle.dump(prediction_labels, open( "predictionlabels.pkl", "wb" ))
+pickle.dump(training_labels, open( "MLP.pkl", "wb" ))
+pickle.dump(X_test_pca, open( "MLP.pkl", "wb" ))
+pickle.dump(y_test_pca, open( "MLP.pkl", "wb" ))
+pickle.dump(X_train_pca, open( "MLP.pkl", "wb" ))
+pickle.dump(mlp, open( "MLP.pkl", "wb" ))
+mlp = pickle.load(open("MLP.pkl", "rb"))
+
 #%%
 def get_api(cfg):
   auth = tweepy.OAuthHandler(cfg['consumer_key'], cfg['consumer_secret'])
@@ -158,8 +287,8 @@ cfg = {
 "access_token_secret" : "siBQjeiksq1h4pzIKZYsEOEaWeWXqBikqeNUiLpTO866O" 
 }
 api = get_api(cfg)
+
 #%%
-#import webbrowser
 new = 2
 import os
 os.chdir("C:\\Users\\Sarick\\Documents\\Python Scripts\\")
@@ -210,17 +339,49 @@ if __name__ == '__main__':
             try:
                 out = cv2.resize(gray2, (350, 350))
                 cv.SaveImage("webcam-m.jpg", cv2.cv.fromarray(gray2))
+                out2 = np.array(out)
+                out2 = out.reshape((1, 122500))
+
                 #Resize face so all images have same size
             except:
-               pass       
+                print "wtf"
+                pass       
             # pred capture
+               
             pred, conf = ffr.predict(out)
+            try:
+                pca = PCA(n_components=n_components, svd_solver='randomized',
+                          whiten=True).fit(training_data2)
+                out_test_pca = pca.transform(out2)
+            except:
+                print "wtf2"
+                pass
+            try:
+                pred2 = mlp.predict(out_test_pca)
+                list1.append(pred)
+                print "MLP Prediction"
+                print pred
+            except:
+                pass
+            
+            '''
+            probabilities =  mlp.predict_proba(out_test_pca)
+            probabilities = probabilities.reshape(8,1)
+            plt.scatter(range(8), probabilities)
+            plt.xticks(range(8), emotions, rotation='vertical')
+            plt.show()
+            '''
+            '''
+            if max(probabilities)-second_largest(probabilities) <= .1:
+                print second_largest(probabilities)
+                nump = np.where(probabilities==second_largest(probabilities))
+                print nump[0]
+            else:
+                print max([(v,i) for i,v in enumerate(probabilities)])
+            '''
             if pred == 0:
                 tweet = u"\U0001F610"
             elif pred == 1:
-                #url = "http://google.com"
-                #webbrowser.open(url, new=new)
-                #mad
                 tweet = u"\U0001f620"
             elif pred == 2:
                 tweet = u"\U0001f644"
@@ -240,123 +401,11 @@ if __name__ == '__main__':
                 except:
                     pass
             status = api.update_status(status=tweet)
-            print pred, conf
-            list1.append(pred)
+            #print "Fisher face recognizer prediction"
+            #print pred, conf            
+            
+            
+            
+            
     vc.release()
-    cv2.destroyWindow("preview") 
-#%%
-from keras.models import Sequential
-from keras.layers.core import Dense, Dropout, Activation, Flatten
-from keras.layers.convolutional import Convolution2D, MaxPooling2D
-'''
-batch_size = 100
-nb_classes = 8
-nb_epoch = 2
-# input image dimensions
-img_rows, img_cols = 350, 350
-# number of convolutional filters to use
-nb_filters = 32
-# size of pooling area for max pooling
-nb_pool = 2
-# convolution kernel size
-nb_conv = 3
-
-model = Sequential()
-model.add(Convolution2D(nb_filters, nb_conv, nb_conv,
-                        border_mode='valid',
-                        input_shape=(img_rows, img_cols, 1)))
-model.add(Activation('relu'))
-model.add(Convolution2D(nb_filters, nb_conv, nb_conv))
-model.add(Activation('relu'))
-model.add(MaxPooling2D(pool_size=(nb_pool, nb_pool)))
-model.add(Dropout(0.25))
-
-model.add(Flatten())
-model.add(Dense(128))
-model.add(Activation('relu'))
-model.add(Dropout(0.5))
-model.add(Dense(nb_classes))
-model.add(Activation('softmax'))
-
-model.compile(loss='categorical_crossentropy', optimizer='adadelta')
-
-
-model.fit(train_data, train_target, batch_size=batch_size, nb_epoch=nb_epoch,
-          show_accuracy=True, verbose=1, validation_split=0.1)
-
-
-'''
-
-
-
-
-
-
-
-
-
-
-
-
-
-input_num_units = 122500
-hidden_num_units = 15
-output_num_units = 8
-epochs = 2
-batch_size = 100
-from keras.models import Sequential
-from keras.layers import Dense
-
-# create model
-model = Sequential([
-  Dense(output_dim=hidden_num_units, input_dim=input_num_units, activation='relu'),
-  Dense(output_dim=output_num_units, input_dim=hidden_num_units, activation='softmax'),
-])
-
-# compile the model with necessary attributes
-model.compile(loss='categorical_crossentropy', optimizer='adam', metrics=['accuracy'])
-
-training_data2 = np.stack(training_data)
-training_labels2 = np.array(training_labels)
-training_labels2 = training_labels2.reshape((-1, 1))
-training_labels2 = training_labels2.flatten()
-prediction_data2 = np.array(prediction_data)
-blah = np.array(training_data)
-blah2 = blah.reshape((521, 122500))
-model.fit(blah2, training_labels, batch_size=batch_size, nb_epoch=epochs)
-
-
-
-          #show_accuracy=True, verbose=1, validation_data=(prediction_data2, prediction_labels))
-
-import matplotlib.pyplot as plt
-from sklearn.datasets import fetch_mldata
-from sklearn.neural_network import MLPClassifier
-mnist = fetch_mldata("MNIST original")
-# rescale the data, use the traditional train/test split
-X, y = mnist.data / 255., mnist.target
-X_train, X_test = X[:60000], X[60000:]
-y_train, y_test = y[:60000], y[60000:]
-
-
-
-mlp = MLPClassifier(hidden_layer_sizes=(20,), max_iter=10, alpha=1e-4,
-                    solver='lbfgs', verbose=10, tol=1e-4, random_state=1,
-                    learning_rate_init=.1)
-mlp.fit(blah2, training_labels)
-print("Training set score: %f" % mlp.score(blah2, training_labels))
-print("Test set score: %f" % mlp.score(X_test, y_test))
-
-fig, axes = plt.subplots(1, 2)
-# use global min / max to ensure all weights are shown on the same scale
-vmin, vmax = mlp.coefs_[0].min(), mlp.coefs_[0].max()
-for coef, ax in zip(mlp.coefs_[0].T, axes.ravel()):
-    ax.matshow(coef.reshape(350, 350), cmap=plt.cm.gray, vmin=.5 * vmin,
-               vmax=.5 * vmax)
-    ax.set_xticks(())
-    ax.set_yticks(())
-
-test_data_blah = np.array(prediction_data).reshape(127, 122500)
-probability = mlp.predict(test_data_blah)
-
-plt.show()
+    cv2.destroyWindow("preview")
