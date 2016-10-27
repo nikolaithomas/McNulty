@@ -1,0 +1,250 @@
+<!DOCTYPE html>
+<meta charset="utf-8">
+<html>
+  <head>
+    <style>
+      rect.bordered {
+        stroke: #E6E6E6;
+        stroke-width:2px;
+      }
+
+      text.mono {
+        font-size: 9pt;
+        font-family: Consolas, courier;
+        //fill: #aaa;
+      }
+
+      text.axis-workweek {
+        fill: #000;
+      }
+
+      text.axis-worktime {
+        fill: #000;
+      }
+
+          #tooltip {
+    position: absolute;
+    z-index: 10;
+    visibility: hidden;  /* Change this to hide and show */
+    background-color: #f7f7f7;
+    padding: 3px 12px;
+    font-family: sans-serif;
+    border: 1px solid #bbbbbb;
+    box-shadow: 1px 1px 4px #bbbbbb;
+  }
+  .tooltip_title {
+    font-weight: bold;
+    font-size: 14px;
+    margin: 5px 0;
+    max-width: 300px;
+    word-wrap: normal;
+  }
+  .tooltip_body {
+    font-weight: normal;
+    margin: 5px 0;
+  }
+
+      .tooltip_img {
+    max-width: 240px;
+  }
+
+    </style>
+    <script src="http://d3js.org/d3.v3.js"></script>
+  </head>
+  <body>
+    <div id="tooltip"></div>
+
+    <div id="chart"></div>
+    <div id="dataset-picker">
+    </div>
+    <script type="text/javascript">
+      var margin = { top: 85, right: 0, bottom: 100, left: 100 },
+          width = 960 - margin.left - margin.right,
+          height = 500 - margin.top - margin.bottom,
+          gridSize = Math.floor(width / 24),
+          legendElementWidth = gridSize,
+          buckets = 5,
+          colors = ["#ffffd9","#edf8b1","#c7e9b4","#7fcdbb","#41b6c4","#1d91c0","#225ea8","#253494","#081d58"], // alternatively colorbrewer.YlGnBu[9]
+          Actual = ["Anger", "Contempt", "Neutral", "Surprise", "Disgust", "Fear", "Happiness","Sadness"],
+          Predicted = [ "Anger", "Contempt", "Neutral", "Surprise", "Disgust", "Fear", "Happiness", "Sadness"];
+          datasets = ["FF_CK.csv", "SVM_CK.csv","RF_CK.csv","MLP_CK.csv","FF_K.csv","SVM_K.csv","RF_K.csv","MLP_K.csv"];
+
+      var svg = d3.select("#chart").append("svg")
+          .attr("width", width + margin.left + margin.right)
+          .attr("height", height + margin.top + margin.bottom)
+          .append("g")
+          .attr("transform", "translate(" + margin.left + "," + margin.top + ")");
+
+      var ActualLabels = svg.selectAll(".ActualLabel")
+          .data(Actual)
+          .enter().append("text")
+            .text(function (d) { return d; })
+            .attr("x", 0)
+            .attr("y", function (d, i) { return i * gridSize; })
+            .style("text-anchor", "end")
+            .attr("transform", "translate(-7," + gridSize / 1.5 + ")")
+            .attr("class", function (d, i) { return ((i >= 0 && i <= 4) ? "ActualLabel mono axis axis-workweek" : "ActualLabel mono axis"); });
+
+      var PredictedLabels = svg.selectAll(".PredictedLabel")
+          .data(Predicted)
+          .enter()
+      			.append("g")
+      				.attr("transform", function(d, i) {
+                return "translate(" + [i * gridSize + gridSize / 2, 0] + ")rotate(-45)";
+              })
+      .append("text")
+            .text(function(d) { return d; })
+            .attr("x", 1 )
+            .attr("y", -4)
+
+//             .style("text-anchor", "center")
+            .attr("class", function(d, i) { return ((i >= 7 && i <= 16) ? "PredictedLabel mono axis axis-worktime" : "PredictedLabel mono axis"); });
+
+      var heatmapChart = function(tsvFile) {
+        d3.csv('/static/' + tsvFile,
+        function(d) {
+          console.log(d);
+          return {
+            Actual: +d.Actual,
+            Predicted: +d.Predicted,
+            Confidence_normalized: +d.Confidence_normalized,
+            imgUrl: d.imgUrl
+          };
+        },
+        function(error, data) {
+          console.log(data);
+          var colorScale = d3.scale.quantile()
+              .domain([0, 1.0])
+              .range(colors);
+
+          svg.selectAll("rect").remove();
+
+
+          var cards = svg.selectAll(".Predicted")
+              .data(data, function(d) {return d.Actual+':'+d.Predicted;});
+
+          cards.append("title");
+
+          cards.enter().append("rect")
+              .attr("x", function(d) { return (d.Predicted ) * gridSize; })
+              .attr("y", function(d) { return (d.Actual) * gridSize; })
+              .attr("rx", 4)
+              .attr("ry", 4)
+              .attr("class", "hour bordered")
+              .attr("width", gridSize)
+              .attr("height", gridSize)
+              .style("fill", colors[0])
+             .on("mouseover", function(d, i) {
+            	console.log(d);
+                                    tooltip.html("");
+       				tooltip.append("h3").attr("class", "tooltip_title");
+            	tooltip.append("img").attr("class", "tooltip_img");
+            	tooltip.select(".tooltip_title")
+         					//.text("TODO Title");
+           tooltip.select("img")
+         .attr("src", d.imgUrl);
+                        tooltip.append("pre").attr("class", "tooltip_body");
+                        tooltip.select(".tooltip_body")
+                          .text("Confidence: " + d.Confidence_normalized + "\n");
+                        return tooltip.style("visibility", "visible");
+                    })
+                  .on("mousemove", function(d) {
+
+                   return tooltip.style("top", (d3.event.pageY-52) + "px").style("left", 		  (d3.event.pageX+18) + "px");
+                 })
+
+                 .on("mouseout", function() {
+                   return tooltip.style("visibility", "hidden");
+
+                 });
+          cards.transition().duration(1000)
+              .style("fill", function(d) { return colorScale(d.Confidence_normalized); });
+
+          cards.select("title").text(function(d) { return d.Confidence_normalized; });
+
+          cards.exit().remove();
+
+          var legend = svg.selectAll(".legend")
+              .data([0].concat(colorScale.quantiles()), function(d) { return d; });
+
+          legend.enter().append("g")
+              .attr("class", "legend");
+
+          legend.append("rect")
+            .attr("x", function(d, i) { return legendElementWidth * i; })
+            .attr("y", height)
+            .attr("width", legendElementWidth)
+            .attr("stroke", "grey")
+            .attr("height", gridSize / 2)
+            .style("fill", function(d, i) { return colors[i]; });
+
+          var legendFormatter = d3.format(".2n");
+          legend.append("text")
+            .attr("class", "mono")
+            .text(function(d) { return legendFormatter(d); })
+            .attr("x", function(d, i) { return legendElementWidth * i; })
+            .attr("y", height + gridSize);
+
+          legend.exit().remove();
+
+        });
+      };
+
+      heatmapChart(datasets[0]);
+      var datasetpicker = d3.select("#dataset-picker").selectAll(".dataset-button")
+        .data(datasets);
+
+      datasetpicker.enter()
+        .append("input")
+        .attr("value", function(d){ return d })
+        .attr("type", "button")
+        .attr("class", "dataset-button")
+        .on("click", function(d) {
+          console.log(d);
+          heatmapChart(d);
+        })
+
+
+      var tooltip = d3.select("div#tooltip")
+        .style("visibility", "hidden");
+
+svg.append("text")
+        .attr("x", 150)
+        .attr("y", -60)
+        .attr("text-anchor", "middle")
+        .style("font-size", "18px")
+				.style("font-family", "Consolas, courier")
+        .style("text-decoration", "bold")
+        .text("Predicted Emotion");
+
+
+      svg.append("text")
+        .attr("x", -145)
+        .attr("y", -90)
+        .attr("text-anchor", "middle")
+        .style("font-size", "18px")
+      .attr("transform", function(d, i) {
+                return "translate(" + [i * gridSize + gridSize / 2, 0] + ")rotate(-90)";
+              })
+				.style("font-family", "Consolas, courier")
+        .style("text-decoration", "bold")
+        .text("Image Label");
+
+      svg.append("text")
+        .attr("x", -45)
+        .attr("y", 325)
+        .attr("text-anchor", "middle")
+        .style("font-size", "14px")
+      .attr("transform", function(d, i) {
+                //return "translate(" + [i * gridSize + gridSize / 2, 0] + ")rotate(-90)";
+              })
+				.style("font-family", "Consolas, courier")
+        .style("text-decoration", "bold")
+        .text("Confidence:");
+
+
+
+
+    </script>
+  </body>
+</html>
