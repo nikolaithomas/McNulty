@@ -1,7 +1,6 @@
 # -*- coding: utf-8 -*-
 """
 Created on Fri Oct 14 14:32:55 2016
-
 @author: Sarick
 Code modified from 
 http://www.paulvangent.com/2016/04/01/emotion-recognition-with-python-opencv-and-a-face-dataset/
@@ -112,8 +111,8 @@ data = {}
 def get_files(emotion): #Define function to get file list, randomly shuffle it and split 80/20
     files = glob.glob("C:\\Users\\Sarick\\Desktop\\Metis\\McNulty Data\\sorted_set\\dataset\\%s\\*" %emotion)
     random.shuffle(files)
-    training = files[:int(len(files)*0.65)] #get first 80% of file list
-    prediction = files[-int(len(files)*0.35):] #get last 20% of file list
+    training = files[:int(len(files)*1)] #get first 80% of file list
+    prediction = files[-int(len(files)*0.01):] #get last 20% of file list
     return training, prediction
 
 def make_sets():
@@ -169,7 +168,7 @@ print prediction_labels
  #%%
 prediction_data2 = np.array(prediction_data)
 training_data2 = np.array(training_data)
-training_data2 = training_data2.reshape((426, 122500))
+training_data2 = training_data2.reshape((662, 122500))
 #%%
 import matplotlib.pyplot as plt
 from sklearn.datasets import fetch_mldata
@@ -222,7 +221,7 @@ eigenfaces = pca.components_.reshape((n_components, 350, 350))
 X_train_pca = pca.transform(training_data2)
 pickle.dump(X_train_pca, open( "X_train_pca.pkl", "wb" ))
 
-prediction_data2 = prediction_data2.reshape((229, 122500))
+prediction_data2 = prediction_data2.reshape((129, 122500))
 pickle.dump(prediction_data2, open( "prediction_data2.pkl", "wb" ))
 
 
@@ -281,12 +280,13 @@ def get_api(cfg):
   return tweepy.API(auth)
 
 cfg = { 
-"consumer_key"        : "ZLrufvTCpbBjcNE1DFoB6hdAZ",
-"consumer_secret"     : "c4XhrnZWRXhFOczKnO7wvcrArfHXzeT9feFyl4v7ggd6ORuWqZ",
-"access_token"        : "1155502550-zqlLpgXNdxGIlEZm16pFwHgjWd4YO2cSL5VnZnW",
-"access_token_secret" : "siBQjeiksq1h4pzIKZYsEOEaWeWXqBikqeNUiLpTO866O" 
+"consumer_key"        : "",
+"consumer_secret"     : "",
+"access_token"        : "",
+"access_token_secret" : "" 
 }
 api = get_api(cfg)
+
 
 #%%
 new = 2
@@ -308,6 +308,7 @@ if __name__ == '__main__':
         cv2.imshow("preview", frame)
         rval, frame = vc.read()
         key = cv2.waitKey(40)
+        cv2.putText(frame, "Press Esc to QUIT", (15, 15), cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0,0,0), 1)
         if key == 27: # exit on ESC
             break
         if key == 32: # press space to save images
@@ -339,8 +340,8 @@ if __name__ == '__main__':
             try:
                 out = cv2.resize(gray2, (350, 350))
                 cv.SaveImage("webcam-m.jpg", cv2.cv.fromarray(gray2))
-                out2 = np.array(out)
-                out2 = out.reshape((1, 122500))
+                out = np.array(out)
+                out = out.reshape((1, 122500))
 
                 #Resize face so all images have same size
             except:
@@ -348,19 +349,29 @@ if __name__ == '__main__':
                 pass       
             # pred capture
                
-            pred, conf = ffr.predict(out)
+            pred2, conf = ffr.predict(out)
+            print "ffr prediction"
+            print emotions[pred2] 
+            
+            
             try:
-                pca = PCA(n_components=n_components, svd_solver='randomized',
-                          whiten=True).fit(training_data2)
-                out_test_pca = pca.transform(out2)
+                
+                out_test_pca = pca.transform(out)
+                
+                #pca = PCA(n_components=n_components, svd_solver='randomized',
+                          #whiten=True).fit(training_data2)
             except:
                 print "wtf2"
+                
                 pass
             try:
-                pred2 = mlp.predict(out_test_pca)
+                pred = mlp.predict(out_test_pca)
                 list1.append(pred)
                 print "MLP Prediction"
-                print pred
+                print emotions[pred]
+                pred3 = clf.predict(out_test_pca)
+                print "SVM Prediction"
+                print emotions[pred3]
             except:
                 pass
             
@@ -380,7 +391,7 @@ if __name__ == '__main__':
                 print max([(v,i) for i,v in enumerate(probabilities)])
             '''
             if pred == 0:
-                tweet = u"\U0001F610"
+                tweet = u"\U0001F610" + "Neutral"
             elif pred == 1:
                 tweet = u"\U0001f620"
             elif pred == 2:
@@ -401,8 +412,7 @@ if __name__ == '__main__':
                 except:
                     pass
             status = api.update_status(status=tweet)
-            #print "Fisher face recognizer prediction"
-            #print pred, conf            
+        
             
             
             
