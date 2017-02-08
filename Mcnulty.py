@@ -2,8 +2,6 @@
 """
 Created on Fri Oct 14 14:32:55 2016
 @author: Sarick
-Code modified from 
-http://www.paulvangent.com/2016/04/01/emotion-recognition-with-python-opencv-and-a-face-dataset/
 """
 import glob
 import random
